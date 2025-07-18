@@ -638,49 +638,46 @@ class SpanishBankGUI(QMainWindow):
     
     def load_file(self):
         """Load file into input text area."""
-        # Create file dialog with optimized settings
-        file_dialog = QFileDialog(self, "Select File", "")
-        file_dialog.setNameFilter("Text Files (*.txt);;CSV Files (*.csv);;Excel Files (*.xlsx *.xls);;All Files (*)")
+        file_name, _ = QFileDialog.getOpenFileName(
+            self, 
+            "Select File", 
+            "", 
+            "Text Files (*.txt);;CSV Files (*.csv);;Excel Files (*.xlsx *.xls);;All Files (*)"
+        )
         
-        # Disable preview and icon generation to improve performance
-        file_dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
-        file_dialog.setOption(QFileDialog.Option.DontResolveSymlinks, True)
-        
-        if file_dialog.exec() == QFileDialog.DialogCode.Accepted:
-            file_path = file_dialog.selectedFiles()[0]
-            if file_path:
-                try:
-                    # Check file size before loading
-                    file_size = os.path.getsize(file_path)
-                    if file_size > 10485760:  # 10MB
-                        reply = QMessageBox.question(
-                            self, "Large File", 
-                            f"File size is {file_size / 1024 / 1024:.1f}MB. This may take a while to load. Continue?",
-                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                        )
-                        if reply == QMessageBox.StandardButton.No:
-                            return
-                    
-                    # Show loading cursor
-                    self.setCursor(Qt.CursorShape.WaitCursor)
-                    
-                    # Determine file type and read accordingly
-                    file_extension = os.path.splitext(file_path)[1].lower()
-                    
-                    if file_extension in ['.xlsx', '.xls']:
-                        # Handle Excel files
-                        content = self._read_excel_file(file_path)
-                    else:
-                        # Handle text/CSV files
-                        content = self._read_text_file(file_path, file_size)
-                    
-                    self.input_text.setPlainText(content)
-                    
-                except Exception as e:
-                    QMessageBox.critical(self, "Error", f"Could not read file: {e}")
-                finally:
-                    # Restore cursor
-                    self.setCursor(Qt.CursorShape.ArrowCursor)
+        if file_name:
+            try:
+                # Check file size before loading
+                file_size = os.path.getsize(file_name)
+                if file_size > 10485760:  # 10MB
+                    reply = QMessageBox.question(
+                        self, "Large File", 
+                        f"File size is {file_size / 1024 / 1024:.1f}MB. This may take a while to load. Continue?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                    )
+                    if reply == QMessageBox.StandardButton.No:
+                        return
+                
+                # Show loading cursor
+                self.setCursor(Qt.CursorShape.WaitCursor)
+                
+                # Determine file type and read accordingly
+                file_extension = os.path.splitext(file_name)[1].lower()
+                
+                if file_extension in ['.xlsx', '.xls']:
+                    # Handle Excel files
+                    content = self._read_excel_file(file_name)
+                else:
+                    # Handle text/CSV files
+                    content = self._read_text_file(file_name, file_size)
+                
+                self.input_text.setPlainText(content)
+                
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Could not read file: {e}")
+            finally:
+                # Restore cursor
+                self.setCursor(Qt.CursorShape.ArrowCursor)
     
     def _read_excel_file(self, file_path: str) -> str:
         """Read Excel file and return content as text."""
@@ -824,36 +821,32 @@ class SpanishBankGUI(QMainWindow):
     
     def export_results(self):
         """Export results to a file."""
-        # Create file dialog with optimized settings
-        file_dialog = QFileDialog(self, "Save Results", "extracted_phones.txt")
-        file_dialog.setNameFilter("Text Files (*.txt);;CSV Files (*.csv);;Excel Files (*.xlsx)")
-        file_dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
+        file_name, _ = QFileDialog.getSaveFileName(
+            self, 
+            "Save Results", 
+            "extracted_phones.txt",
+            "Text Files (*.txt);;CSV Files (*.csv);;Excel Files (*.xlsx)"
+        )
         
-        # Disable preview and icon generation to improve performance
-        file_dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
-        file_dialog.setOption(QFileDialog.Option.DontResolveSymlinks, True)
-        
-        if file_dialog.exec() == QFileDialog.DialogCode.Accepted:
-            file_path = file_dialog.selectedFiles()[0]
-            if file_path:
-                try:
-                    # Show saving cursor
-                    self.setCursor(Qt.CursorShape.WaitCursor)
-                    
-                    # Determine file type and export accordingly
-                    file_extension = os.path.splitext(file_path)[1].lower()
-                    
-                    if file_extension == '.xlsx':
-                        self._export_to_excel(file_path)
-                    else:
-                        self._export_to_text(file_path)
-                    
-                    QMessageBox.information(self, "Success", f"Phone numbers exported to {file_path}")
-                except Exception as e:
-                    QMessageBox.critical(self, "Error", f"Could not export results: {e}")
-                finally:
-                    # Restore cursor
-                    self.setCursor(Qt.CursorShape.ArrowCursor)
+        if file_name:
+            try:
+                # Show saving cursor
+                self.setCursor(Qt.CursorShape.WaitCursor)
+                
+                # Determine file type and export accordingly
+                file_extension = os.path.splitext(file_name)[1].lower()
+                
+                if file_extension == '.xlsx':
+                    self._export_to_excel(file_name)
+                else:
+                    self._export_to_text(file_name)
+                
+                QMessageBox.information(self, "Success", f"Phone numbers exported to {file_name}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Could not export results: {e}")
+            finally:
+                # Restore cursor
+                self.setCursor(Qt.CursorShape.ArrowCursor)
     
     def _export_to_excel(self, file_path: str):
         """Export results to Excel file."""
