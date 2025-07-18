@@ -26,7 +26,7 @@ class SpanishBankExtractor:
     def _compile_phone_patterns(self) -> List[re.Pattern]:
         """
         Compile phone number patterns for Spanish numbers.
-        Excludes numbers starting with 9.
+        Excludes numbers starting with 8 and 9.
         
         Returns:
             List of compiled regex patterns.
@@ -37,17 +37,11 @@ class SpanishBankExtractor:
             # International format with grouping
             r'\+34\s*\d{2,3}\s*\d{3}\s*\d{2}\s*\d{2}',  # +34 12 345 67 89 or +34 123 45 67 89
             
-            # Spanish mobile numbers (6, 7, 8) - must be exactly 9 digits (excludes 9)
-            r'\b[6-8]\d{8}\b',  # 612345678, 712345678, 812345678
+            # Spanish mobile numbers (6, 7) - must be exactly 9 digits (excludes 8 and 9)
+            r'\b[67]\d{8}\b',  # 612345678, 712345678
             
-            # Spanish mobile numbers with spaces (9 digits total) (excludes 9)
-            r'\b[6-8]\d{2}\s*\d{3}\s*\d{2}\s*\d{2}\b',  # 612 345 67 89, 712 345 67 89, 812 345 67 89
-            
-            # Spanish landline numbers (9 digits starting with 8 only)
-            r'\b8\d{8}\b',  # 812345678
-            
-            # Spanish landline numbers with spaces (9 digits total) (excludes 9)
-            r'\b8\d{2}\s*\d{3}\s*\d{2}\s*\d{2}\b',  # 812 345 67 89
+            # Spanish mobile numbers with spaces (9 digits total) (excludes 8 and 9)
+            r'\b[67]\d{2}\s*\d{3}\s*\d{2}\s*\d{2}\b',  # 612 345 67 89, 712 345 67 89
         ]
         
         return [re.compile(pattern, re.IGNORECASE) for pattern in patterns]

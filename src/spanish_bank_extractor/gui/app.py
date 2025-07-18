@@ -9,7 +9,7 @@ import sys
 import os
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QComboBox, QTextEdit, QPushButton, QLabel, QFileDialog,
+    QComboBox, QTextEdit, QLineEdit, QPushButton, QLabel, QFileDialog,
     QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
     QMessageBox, QProgressBar, QSplitter, QFrame, QScrollArea,
     QDialog, QDialogButtonBox
@@ -330,8 +330,8 @@ class SpanishBankGUI(QMainWindow):
         search_layout = QHBoxLayout()
         search_layout.setSpacing(12)
         
-        self.bank_search_input = QTextEdit()
-        self.bank_search_input.setMaximumHeight(60)
+        self.bank_search_input = QLineEdit()
+        self.bank_search_input.setMinimumHeight(40)
         self.bank_search_input.setFont(QFont("Segoe UI", 10))
         self.bank_search_input.setPlaceholderText("Search banks by name...")
         
@@ -421,7 +421,7 @@ class SpanishBankGUI(QMainWindow):
                 background-color: transparent;
             }
             
-            QTextEdit, QLineEdit {
+            QTextEdit {
                 border: 1px solid #404040;
                 border-radius: 6px;
                 padding: 8px;
@@ -430,6 +430,17 @@ class SpanishBankGUI(QMainWindow):
                 selection-background-color: #0078d4;
                 selection-color: white;
                 min-height: 100px;
+            }
+            
+            QLineEdit {
+                border: 1px solid #404040;
+                border-radius: 6px;
+                padding: 8px 12px;
+                background-color: #2d2d30;
+                color: #ffffff;
+                selection-background-color: #0078d4;
+                selection-color: white;
+                min-height: 20px;
             }
             
             QTextEdit:focus, QLineEdit:focus {
@@ -629,7 +640,7 @@ class SpanishBankGUI(QMainWindow):
         """Load file into input text area."""
         # Create file dialog with optimized settings
         file_dialog = QFileDialog(self, "Select File", "")
-        file_dialog.setNameFilter("Text Files (*.txt);;CSV Files (*.csv);;All Files (*)")
+        file_dialog.setNameFilter("Text Files (*.txt);;CSV Files (*.csv);;Excel Files (*.xlsx *.xls);;All Files (*)")
         
         # Disable preview and icon generation to improve performance
         file_dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
@@ -653,45 +664,101 @@ class SpanishBankGUI(QMainWindow):
                     # Show loading cursor
                     self.setCursor(Qt.CursorShape.WaitCursor)
                     
-                    # Read file with progress indication for large files
-                    if file_size > 1024000:  # 1MB
-                        # For large files, read in chunks with progress
-                        content = ""
-                        with open(file_path, 'r', encoding='utf-8-sig') as file:
-                            chunk_size = 8192  # 8KB chunks
-                            total_chunks = file_size // chunk_size + 1
-                            chunk_count = 0
-                            
-                            while True:
-                                chunk = file.read(chunk_size)
-                                if not chunk:
-                                    break
-                                content += chunk
-                                chunk_count += 1
-                                
-                                # Update progress every 100 chunks
-                                if chunk_count % 100 == 0:
-                                    QApplication.processEvents()  # Keep UI responsive
+                    # Determine file type and read accordingly
+                    file_extension = os.path.splitext(file_path)[1].lower()
+                    
+                    if file_extension in ['.xlsx', '.xls']:
+                        # Handle Excel files
+                        content = self._read_excel_file(file_path)
                     else:
-                        # For smaller files, read all at once
-                        with open(file_path, 'r', encoding='utf-8-sig') as file:
-                            content = file.read()
+                        # Handle text/CSV files
+                        content = self._read_text_file(file_path, file_size)
                     
                     self.input_text.setPlainText(content)
                     
-                except UnicodeDecodeError:
-                    # Try with different encoding if UTF-8 fails
-                    try:
-                        with open(file_path, 'r', encoding='latin-1') as file:
-                            content = file.read()
-                        self.input_text.setPlainText(content)
-                    except Exception as e:
-                        QMessageBox.critical(self, "Error", f"Could not read file with any encoding: {e}")
                 except Exception as e:
                     QMessageBox.critical(self, "Error", f"Could not read file: {e}")
                 finally:
                     # Restore cursor
                     self.setCursor(Qt.CursorShape.ArrowCursor)
+    
+    def _read_excel_file(self, file_path: str) -> str:
+        """Read Excel file and return content as text."""
+        try:
+            import openpyxl
+            from openpyxl import load_workbook
+        except ImportError:
+            raise RuntimeError("openpyxl is required to read Excel files. Please install it with: pip install openpyxl")
+        
+        try:
+            # Load the workbook
+            workbook = load_workbook(filename=file_path, read_only=True, data_only=True)
+            
+            # Get the first worksheet
+            worksheet = workbook.active
+            if worksheet is None:
+                # If no active worksheet, get the first one
+                worksheet = workbook.worksheets[0] if workbook.worksheets else None
+                if worksheet is None:
+                    raise RuntimeError("No worksheets found in the Excel file")
+            
+            # Read all cells and convert to text
+            content_lines = []
+            for row in worksheet.iter_rows(values_only=True):
+                # Convert row to text, filtering out None values
+                row_text = []
+                for cell_value in row:
+                    if cell_value is not None:
+                        row_text.append(str(cell_value))
+                
+                if row_text:  # Only add non-empty rows
+                    content_lines.append('\t'.join(row_text))
+            
+            workbook.close()
+            return '\n'.join(content_lines)
+            
+        except Exception as e:
+            raise RuntimeError(f"Error reading Excel file: {e}")
+    
+    def _read_text_file(self, file_path: str, file_size: int) -> str:
+        """Read text/CSV file and return content."""
+        try:
+            # Read file with progress indication for large files
+            if file_size > 1024000:  # 1MB
+                # For large files, read in chunks with progress
+                content = ""
+                with open(file_path, 'r', encoding='utf-8-sig') as file:
+                    chunk_size = 8192  # 8KB chunks
+                    total_chunks = file_size // chunk_size + 1
+                    chunk_count = 0
+                    
+                    while True:
+                        chunk = file.read(chunk_size)
+                        if not chunk:
+                            break
+                        content += chunk
+                        chunk_count += 1
+                        
+                        # Update progress every 100 chunks
+                        if chunk_count % 100 == 0:
+                            QApplication.processEvents()  # Keep UI responsive
+            else:
+                # For smaller files, read all at once
+                with open(file_path, 'r', encoding='utf-8-sig') as file:
+                    content = file.read()
+            
+            return content
+            
+        except UnicodeDecodeError:
+            # Try with different encoding if UTF-8 fails
+            try:
+                with open(file_path, 'r', encoding='latin-1') as file:
+                    content = file.read()
+                return content
+            except Exception as e:
+                raise RuntimeError(f"Could not read file with any encoding: {e}")
+        except Exception as e:
+            raise RuntimeError(f"Could not read file: {e}")
     
     def clear_input(self):
         """Clear input text area."""
@@ -759,7 +826,7 @@ class SpanishBankGUI(QMainWindow):
         """Export results to a file."""
         # Create file dialog with optimized settings
         file_dialog = QFileDialog(self, "Save Results", "extracted_phones.txt")
-        file_dialog.setNameFilter("Text Files (*.txt);;CSV Files (*.csv)")
+        file_dialog.setNameFilter("Text Files (*.txt);;CSV Files (*.csv);;Excel Files (*.xlsx)")
         file_dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
         
         # Disable preview and icon generation to improve performance
@@ -773,16 +840,13 @@ class SpanishBankGUI(QMainWindow):
                     # Show saving cursor
                     self.setCursor(Qt.CursorShape.WaitCursor)
                     
-                    with open(file_path, 'w', encoding='utf-8') as file:
-                        for row in range(self.results_table.rowCount()):
-                            phone_item = self.results_table.item(row, 2)
-                            if phone_item:
-                                phones = phone_item.text()
-                                # Split phone numbers and write each one on a separate line
-                                phone_list = [phone.strip() for phone in phones.split(',')]
-                                for phone in phone_list:
-                                    if phone:  # Only write non-empty phone numbers
-                                        file.write(f"{phone}\n")
+                    # Determine file type and export accordingly
+                    file_extension = os.path.splitext(file_path)[1].lower()
+                    
+                    if file_extension == '.xlsx':
+                        self._export_to_excel(file_path)
+                    else:
+                        self._export_to_text(file_path)
                     
                     QMessageBox.information(self, "Success", f"Phone numbers exported to {file_path}")
                 except Exception as e:
@@ -790,6 +854,77 @@ class SpanishBankGUI(QMainWindow):
                 finally:
                     # Restore cursor
                     self.setCursor(Qt.CursorShape.ArrowCursor)
+    
+    def _export_to_excel(self, file_path: str):
+        """Export results to Excel file."""
+        try:
+            import openpyxl
+            from openpyxl import Workbook
+            from openpyxl.utils import get_column_letter
+        except ImportError:
+            raise RuntimeError("openpyxl is required to export Excel files. Please install it with: pip install openpyxl")
+        
+        # Create a new workbook
+        workbook = Workbook()
+        worksheet = workbook.active
+        if worksheet is None:
+            # Create a new worksheet if none exists
+            worksheet = workbook.create_sheet("Extracted Phone Numbers")
+        else:
+            worksheet.title = "Extracted Phone Numbers"
+        
+        # Add headers
+        worksheet['A1'] = "Line Number"
+        worksheet['B1'] = "Original Text"
+        worksheet['C1'] = "Phone Numbers"
+        
+        # Add data
+        row_num = 2
+        for table_row in range(self.results_table.rowCount()):
+            line_item = self.results_table.item(table_row, 0)
+            text_item = self.results_table.item(table_row, 1)
+            phone_item = self.results_table.item(table_row, 2)
+            
+            if line_item:
+                worksheet[f'A{row_num}'] = line_item.text()
+            if text_item:
+                worksheet[f'B{row_num}'] = text_item.text()
+            if phone_item:
+                worksheet[f'C{row_num}'] = phone_item.text()
+            
+            row_num += 1
+        
+        # Auto-adjust column widths
+        for col_idx, column in enumerate(worksheet.columns, 1):
+            max_length = 0
+            column_letter = get_column_letter(col_idx)
+            
+            for cell in column:
+                try:
+                    if cell.value and len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            
+            adjusted_width = min(max_length + 2, 50)  # Cap at 50 characters
+            worksheet.column_dimensions[column_letter].width = adjusted_width
+        
+        # Save the workbook
+        workbook.save(file_path)
+        workbook.close()
+    
+    def _export_to_text(self, file_path: str):
+        """Export results to text/CSV file."""
+        with open(file_path, 'w', encoding='utf-8') as file:
+            for row in range(self.results_table.rowCount()):
+                phone_item = self.results_table.item(row, 2)
+                if phone_item:
+                    phones = phone_item.text()
+                    # Split phone numbers and write each one on a separate line
+                    phone_list = [phone.strip() for phone in phones.split(',')]
+                    for phone in phone_list:
+                        if phone:  # Only write non-empty phone numbers
+                            file.write(f"{phone}\n")
     
     def clear_results(self):
         """Clear results table."""
@@ -800,7 +935,7 @@ class SpanishBankGUI(QMainWindow):
     
     def search_banks(self):
         """Search banks by name."""
-        search_term = self.bank_search_input.toPlainText().strip()
+        search_term = self.bank_search_input.text().strip()
         if not search_term:
             self.load_all_banks()
             return
