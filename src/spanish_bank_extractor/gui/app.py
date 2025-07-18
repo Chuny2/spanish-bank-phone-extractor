@@ -87,7 +87,8 @@ class SpanishBankGUI(QMainWindow):
     def init_ui(self):
         """Initialize the user interface."""
         self.setWindowTitle("Spanish Bank Phone Extractor")
-        self.setMinimumSize(1000, 700)
+        self.setMinimumSize(800, 600)
+        self.resize(1200, 800)
         
         # Status bar will be created automatically when needed
         
@@ -97,8 +98,8 @@ class SpanishBankGUI(QMainWindow):
         
         # Main layout
         main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(20, 20, 20, 20)
-        main_layout.setSpacing(20)
+        main_layout.setContentsMargins(16, 16, 16, 16)
+        main_layout.setSpacing(16)
         
         # Header
         header = self.create_header()
@@ -165,12 +166,6 @@ class SpanishBankGUI(QMainWindow):
         layout = QVBoxLayout(section_widget)
         layout.setSpacing(12)
         
-        # Section title
-        title_label = QLabel("Select Spanish Bank")
-        title_label.setFont(QFont("Segoe UI", 14, QFont.Weight.DemiBold))
-        title_label.setProperty("class", "title")
-        title_label.setStyleSheet("margin-bottom: 8px;")
-        
         # Bank selection controls
         controls_layout = QHBoxLayout()
         controls_layout.setSpacing(12)
@@ -205,7 +200,6 @@ class SpanishBankGUI(QMainWindow):
         # Connect signals
         self.bank_combo.currentIndexChanged.connect(self.on_bank_selected)
         
-        layout.addWidget(title_label)
         layout.addLayout(controls_layout)
         layout.addWidget(self.bank_info_label)
         
@@ -216,12 +210,6 @@ class SpanishBankGUI(QMainWindow):
         section_widget = QWidget()
         layout = QVBoxLayout(section_widget)
         layout.setSpacing(12)
-        
-        # Section title
-        title_label = QLabel("Input Data")
-        title_label.setFont(QFont("Segoe UI", 14, QFont.Weight.DemiBold))
-        title_label.setProperty("class", "title")
-        title_label.setStyleSheet("margin-bottom: 8px;")
         
         # Input controls
         controls_layout = QHBoxLayout()
@@ -243,7 +231,7 @@ class SpanishBankGUI(QMainWindow):
         self.input_text = QTextEdit()
         self.input_text.setFont(QFont("Consolas", 10))
         self.input_text.setStyleSheet("line-height: 1.4; padding: 12px;")
-        self.input_text.setPlaceholderText("Enter text with Spanish IBANs and phone numbers here...\n\nExample:\nES91 0182 0418 4502 0005 1332 +34 612345678\nES91 0049 1852 0630 2000 0001 712345679")
+        self.input_text.setPlaceholderText("Paste your data with Spanish IBANs and phone numbers here...")
         
         # Process button
         self.process_button = ModernButton("Extract Phone Numbers", primary=True)
@@ -267,7 +255,6 @@ class SpanishBankGUI(QMainWindow):
             }
         """)
         
-        layout.addWidget(title_label)
         layout.addLayout(controls_layout)
         layout.addWidget(self.input_text)
         layout.addWidget(self.process_button)
@@ -279,12 +266,6 @@ class SpanishBankGUI(QMainWindow):
         section_widget = QWidget()
         layout = QVBoxLayout(section_widget)
         layout.setSpacing(12)
-        
-        # Section title
-        title_label = QLabel("Extracted Phone Numbers")
-        title_label.setFont(QFont("Segoe UI", 14, QFont.Weight.DemiBold))
-        title_label.setProperty("class", "title")
-        title_label.setStyleSheet("margin-bottom: 8px;")
         
         # Results table
         self.results_table = QTableWidget()
@@ -320,7 +301,6 @@ class SpanishBankGUI(QMainWindow):
         controls_layout.addStretch()
         controls_layout.addWidget(self.results_summary)
         
-        layout.addWidget(title_label)
         layout.addWidget(self.results_table)
         layout.addLayout(controls_layout)
         
@@ -340,7 +320,7 @@ class SpanishBankGUI(QMainWindow):
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         # Instructions
-        instructions_label = QLabel("Double-click on any bank to select it for phone number extraction")
+        instructions_label = QLabel("Double-click a bank to select it")
         instructions_label.setFont(QFont("Segoe UI", 10))
         instructions_label.setProperty("class", "subtitle")
         instructions_label.setStyleSheet("margin-bottom: 16px; color: #605e5c;")
@@ -396,6 +376,8 @@ class SpanishBankGUI(QMainWindow):
                 background-color: #1e1e1e;
                 font-family: 'Segoe UI', Arial, sans-serif;
                 color: #ffffff;
+                min-width: 800px;
+                min-height: 600px;
             }
             
             QWidget {
@@ -447,6 +429,7 @@ class SpanishBankGUI(QMainWindow):
                 color: #ffffff;
                 selection-background-color: #0078d4;
                 selection-color: white;
+                min-height: 100px;
             }
             
             QTextEdit:focus, QLineEdit:focus {
@@ -513,6 +496,7 @@ class SpanishBankGUI(QMainWindow):
                 color: #ffffff;
                 gridline-color: #404040;
                 alternate-background-color: #252526;
+                min-height: 200px;
             }
             
             QTableWidget::item {
@@ -618,9 +602,7 @@ class SpanishBankGUI(QMainWindow):
                 bank_info = self.extractor.get_bank_info(normalized_prefix)
                 if bank_info:
                     self.bank_info_label.setText(
-                        f"Selected: {bank_info['name']} | "
-                        f"Entity Code: {bank_info['entity_code']} | "
-                        f"Address: {bank_info['address']}"
+                        f"Selected: {bank_info['name']} ({bank_info['entity_code']})"
                     )
                     self.bank_info_label.setVisible(True)
                     self.process_button.setEnabled(True)
@@ -860,24 +842,13 @@ class SpanishBankGUI(QMainWindow):
         if bank_info:
             self.selected_bank_prefix = normalized_prefix
             self.bank_info_label.setText(
-                f"Selected: {bank_info['name']} | "
-                f"Entity Code: {bank_info['entity_code']} | "
-                f"Address: {bank_info['address']}"
+                f"Selected: {bank_info['name']} ({bank_info['entity_code']})"
             )
             self.bank_info_label.setVisible(True)
             self.process_button.setEnabled(True)
         
         # Switch to the extraction tab
         self.tab_widget.setCurrentIndex(0)
-        
-        # Show confirmation message
-        bank_info = self.extractor.get_bank_info(iban_prefix)
-        if bank_info:
-            QMessageBox.information(
-                self, 
-                "Bank Selected", 
-                f"Selected: {bank_info['name']}\n\nYou can now extract phone numbers for this bank."
-            )
     
     def display_banks(self, banks):
         """Display banks in the table."""
