@@ -194,10 +194,12 @@ $RECYCLE.BIN/
 
 # Project-specific files
 # Data files that might contain sensitive information
-*.csv
 *.txt
 *.json
 *.xml
+
+# Keep important data files
+!lista-psri-es.csv
 *.xlsx
 *.xls
 
