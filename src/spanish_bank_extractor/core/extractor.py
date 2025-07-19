@@ -32,15 +32,9 @@ class SpanishBankExtractor:
             List of compiled regex patterns.
         """
         patterns = [
-            # International format with +34 prefix
             r'\+34\s*\d{9}',  # +34 123456789 or +34123456789
-            # International format with grouping
             r'\+34\s*\d{2,3}\s*\d{3}\s*\d{2}\s*\d{2}',  # +34 12 345 67 89 or +34 123 45 67 89
-            
-            # Spanish mobile numbers (6, 7) - must be exactly 9 digits (excludes 8 and 9)
             r'\b[67]\d{8}\b',  # 612345678, 712345678
-            
-            # Spanish mobile numbers with spaces (9 digits total) (excludes 8 and 9)
             r'\b[67]\d{2}\s*\d{3}\s*\d{2}\s*\d{2}\b',  # 612 345 67 89, 712 345 67 89
         ]
         
@@ -57,14 +51,11 @@ class SpanishBankExtractor:
         Returns:
             List of extracted phone numbers.
         """
-        # Normalize IBAN prefix to match registry format
         normalized_prefix = self.normalize_iban_prefix(iban_prefix)
-        # Get the entity code for the bank
         entity_code = self.bank_registry.get_entity_code(normalized_prefix)
         if not entity_code:
             return []
 
-        # Find all IBANs in the line
         iban_pattern = re.compile(r'ES\d{2}\s?\d{4}\s?\d{4}\s?\d{4}\s?\d{4}\s?\d{4}', re.IGNORECASE)
         ibans_in_line = iban_pattern.findall(text.replace('-', ''))
         found_match = False
@@ -78,12 +69,11 @@ class SpanishBankExtractor:
         if not found_match:
             return []
 
-        # Extract phone numbers
         phone_numbers = []
         for pattern in self._phone_patterns:
             matches = pattern.findall(text)
             phone_numbers.extend(matches)
-        # Remove duplicates while preserving order
+        
         seen = set()
         unique_phones = []
         for phone in phone_numbers:
@@ -102,19 +92,13 @@ class SpanishBankExtractor:
         Returns:
             Normalized prefix (e.g., 'ES0049')
         """
-        # Remove spaces
         clean_prefix = iban_prefix.replace(' ', '')
         
-        # If it starts with ES and has more than 2 characters after ES
         if clean_prefix.startswith('ES') and len(clean_prefix) > 2:
-            # Check if this is already a 4-digit entity code (like ES0049)
             if len(clean_prefix) == 6 and clean_prefix[2:6].isdigit():
-                return clean_prefix  # Already in correct format
+                return clean_prefix
             
-            # Extract the entity code part (after ES and check digits)
-            # Spanish IBAN format: ES + 2 check digits + 4 entity code + rest
             if len(clean_prefix) >= 6:
-                # Extract entity code (positions 4-7 after ES)
                 entity_code = clean_prefix[4:8]
                 return f"ES{entity_code}"
         
@@ -184,18 +168,15 @@ class SpanishBankExtractor:
         processed_lines = 0
         
         try:
-            # Count total lines first
             with open(file_path, 'r', encoding='utf-8-sig') as file:
                 total_lines = sum(1 for _ in file)
             
-            # Process file in chunks
             with open(file_path, 'r', encoding='utf-8-sig') as file:
                 chunk_lines = []
                 
                 for line_num, line in enumerate(file, 1):
                     chunk_lines.append((line_num, line.strip()))
                     
-                    # Process chunk when it reaches the specified size
                     if len(chunk_lines) >= chunk_size:
                         chunk_results = self._process_chunk(iban_prefix, chunk_lines)
                         results.extend(chunk_results)
@@ -207,7 +188,6 @@ class SpanishBankExtractor:
                         
                         chunk_lines = []
                 
-                # Process remaining lines
                 if chunk_lines:
                     chunk_results = self._process_chunk(iban_prefix, chunk_lines)
                     results.extend(chunk_results)
@@ -236,7 +216,7 @@ class SpanishBankExtractor:
         results = []
         
         for line_num, line in chunk_lines:
-            if line:  # Skip empty lines
+            if line:
                 phone_numbers = self.extract_phone_numbers(iban_prefix, line)
                 if phone_numbers:
                     results.append({
@@ -263,13 +243,11 @@ class SpanishBankExtractor:
             line_count = 0
             
             with open(file_path, 'r', encoding='utf-8-sig') as file:
-                # Count lines efficiently
                 for _ in file:
                     line_count += 1
-                    if line_count > 10000:  # Sample first 10k lines
+                    if line_count > 10000:
                         break
             
-            # Estimate total lines if we sampled
             if line_count == 10000:
                 estimated_lines = int((file_size / file.tell()) * line_count)
             else:
@@ -279,7 +257,7 @@ class SpanishBankExtractor:
                 'file_size_bytes': file_size,
                 'file_size_mb': file_size / (1024 * 1024),
                 'estimated_lines': estimated_lines,
-                'is_large_file': file_size > 10 * 1024 * 1024,  # > 10MB
+                'is_large_file': file_size > 10 * 1024 * 1024,
                 'recommended_chunk_size': min(5000, max(1000, estimated_lines // 100))
             }
         except Exception as e:
@@ -338,7 +316,6 @@ class SpanishBankExtractor:
         Returns:
             True if the IBAN format is valid, False otherwise.
         """
-        # Spanish IBAN format: ES + 2 check digits + 4 entity code + rest
         pattern = r'^ES\d{2}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}$'
         return bool(re.match(pattern, iban.replace(' ', '')))
     
@@ -352,10 +329,8 @@ class SpanishBankExtractor:
         Returns:
             The 4-digit entity code or None if invalid format.
         """
-        # Remove spaces and check format
         clean_iban = iban.replace(' ', '')
         if not clean_iban.startswith('ES') or len(clean_iban) < 6:
             return None
         
-        # Extract entity code (positions 4-7 after ES)
         return clean_iban[4:8] 

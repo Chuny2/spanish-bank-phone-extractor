@@ -75,6 +75,167 @@ class ModernButton(QPushButton):
             """)
 
 
+class FileLoaderThread(QThread):
+    """Thread for loading files asynchronously to prevent GUI freezing."""
+    
+    file_loaded = pyqtSignal(str)
+    error_occurred = pyqtSignal(str)
+    progress_updated = pyqtSignal(int)
+    
+    def __init__(self, file_path: str, file_extension: str):
+        super().__init__()
+        self.file_path = file_path
+        self.file_extension = file_extension
+    
+    def run(self):
+        """Load the file in a separate thread."""
+        try:
+            if self.file_extension in ['.xlsx', '.xls']:
+                content = self._read_excel_file()
+            else:
+                content = self._read_text_file()
+            
+            self.file_loaded.emit(content)
+            
+        except Exception as e:
+            self.error_occurred.emit(str(e))
+    
+    def _read_excel_file(self) -> str:
+        """Read Excel file and return content as text."""
+        try:
+            import openpyxl
+            from openpyxl import load_workbook
+        except ImportError:
+            raise RuntimeError("openpyxl is required to read Excel files. Please install it with: pip install openpyxl")
+        
+        try:
+            workbook = load_workbook(filename=self.file_path, read_only=True, data_only=True)
+            
+            worksheet = workbook.active
+            if worksheet is None:
+                worksheet = workbook.worksheets[0] if workbook.worksheets else None
+                if worksheet is None:
+                    raise RuntimeError("No worksheets found in the Excel file")
+            
+            content_lines = []
+            row_count = 0
+            
+            max_row = worksheet.max_row
+            progress_interval = max(1, max_row // 100)
+            
+            for row in worksheet.iter_rows(values_only=True):
+                if self.isInterruptionRequested():
+                    return ""
+                
+                row_text = []
+                for cell_value in row:
+                    if cell_value is not None:
+                        row_text.append(str(cell_value))
+                
+                if row_text:
+                    content_lines.append('\t'.join(row_text))
+                
+                row_count += 1
+                
+                if row_count % progress_interval == 0:
+                    progress = int((row_count / max_row) * 100)
+                    self.progress_updated.emit(progress)
+            
+            workbook.close()
+            return '\n'.join(content_lines)
+            
+        except Exception as e:
+            raise RuntimeError(f"Error reading Excel file: {e}")
+    
+    def _read_text_file(self) -> str:
+        """Read text/CSV file and return content."""
+        try:
+            file_size = os.path.getsize(self.file_path)
+            
+            if file_size > 1024000:
+                content = ""
+                with open(self.file_path, 'r', encoding='utf-8-sig') as file:
+                    chunk_size = 8192
+                    total_chunks = file_size // chunk_size + 1
+                    chunk_count = 0
+                    
+                    while True:
+                        if self.isInterruptionRequested():
+                            return ""
+                        
+                        chunk = file.read(chunk_size)
+                        if not chunk:
+                            break
+                        content += chunk
+                        chunk_count += 1
+                        
+                        if chunk_count % 50 == 0:
+                            progress = int((chunk_count / total_chunks) * 100)
+                            self.progress_updated.emit(progress)
+            else:
+                with open(self.file_path, 'r', encoding='utf-8-sig') as file:
+                    content = file.read()
+            
+            return content
+            
+        except UnicodeDecodeError:
+            try:
+                with open(self.file_path, 'r', encoding='latin-1') as file:
+                    content = file.read()
+                return content
+            except Exception as e:
+                raise RuntimeError(f"Could not read file with any encoding: {e}")
+        except Exception as e:
+            raise RuntimeError(f"Could not read file: {e}")
+
+
+class ProcessingThread(QThread):
+    """Thread for processing large datasets asynchronously to prevent GUI freezing."""
+    
+    processing_complete = pyqtSignal(list)
+    error_occurred = pyqtSignal(str)
+    progress_updated = pyqtSignal(int)
+    
+    def __init__(self, extractor, iban_prefix: str, text: str):
+        super().__init__()
+        self.extractor = extractor
+        self.iban_prefix = iban_prefix
+        self.text = text
+    
+    def run(self):
+        """Process the text in a separate thread."""
+        try:
+            lines = self.text.split('\n')
+            total_lines = len(lines)
+            results = []
+            
+            for i, line in enumerate(lines):
+                if self.isInterruptionRequested():
+                    return
+                
+                line = line.strip()
+                if line:
+                    phone_numbers = self.extractor.extract_phone_numbers(self.iban_prefix, line)
+                    if phone_numbers:
+                        results.append({
+                            'line_number': i + 1,
+                            'text': line,
+                            'phone_numbers': phone_numbers,
+                            'phone_count': len(phone_numbers)
+                        })
+                
+                if total_lines > 1000 and i % 50 == 0:
+                    progress = int((i / total_lines) * 100)
+                    self.progress_updated.emit(progress)
+                    import time
+                    time.sleep(0.001)
+            
+            self.processing_complete.emit(results)
+            
+        except Exception as e:
+            self.error_occurred.emit(str(e))
+
+
 class SpanishBankGUI(QMainWindow):
     """Main GUI window for Spanish Bank Phone Extractor."""
     
@@ -90,26 +251,19 @@ class SpanishBankGUI(QMainWindow):
         self.setMinimumSize(800, 600)
         self.resize(1200, 800)
         
-        # Status bar will be created automatically when needed
-        
-        # Create central widget
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         
-        # Main layout
         main_layout = QVBoxLayout(central_widget)
         main_layout.setContentsMargins(16, 16, 16, 16)
         main_layout.setSpacing(16)
         
-        # Header
         header = self.create_header()
         main_layout.addWidget(header)
         
-        # Create tab widget
         self.tab_widget = QTabWidget()
         self.tab_widget.setFont(QFont("Segoe UI", 10))
         
-        # Add tabs
         self.tab_widget.addTab(self.create_extraction_tab(), "Phone Extraction")
         self.tab_widget.addTab(self.create_bank_info_tab(), "Bank Information")
         
@@ -121,14 +275,12 @@ class SpanishBankGUI(QMainWindow):
         header_layout = QVBoxLayout(header_widget)
         header_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Title
         title_label = QLabel("Spanish Bank Phone Number Extractor")
         title_label.setFont(QFont("Segoe UI", 24, QFont.Weight.Bold))
         title_label.setProperty("class", "title")
         title_label.setStyleSheet("margin-bottom: 8px;")
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        # Subtitle
         subtitle_label = QLabel("Extract phone numbers from Spanish bank IBAN data")
         subtitle_label.setFont(QFont("Segoe UI", 12))
         subtitle_label.setProperty("class", "subtitle")
@@ -146,15 +298,12 @@ class SpanishBankGUI(QMainWindow):
         layout = QVBoxLayout(tab_widget)
         layout.setSpacing(20)
         
-        # Bank selection section
         bank_section = self.create_bank_selection_section()
         layout.addWidget(bank_section)
         
-        # Input section
         input_section = self.create_input_section()
         layout.addWidget(input_section)
         
-        # Results section
         self.results_section = self.create_results_section()
         layout.addWidget(self.results_section)
         
@@ -166,23 +315,19 @@ class SpanishBankGUI(QMainWindow):
         layout = QVBoxLayout(section_widget)
         layout.setSpacing(12)
         
-        # Bank selection controls
         controls_layout = QHBoxLayout()
         controls_layout.setSpacing(12)
         
-        # Major banks dropdown
         self.bank_combo = QComboBox()
         self.bank_combo.setMinimumHeight(40)
         self.bank_combo.setMinimumWidth(300)
         self.bank_combo.setFont(QFont("Segoe UI", 10))
         
-        # Populate major banks
         major_banks = self.extractor.get_major_banks()
         self.bank_combo.addItem("Select a bank...", None)
         for iban_prefix, display_name in major_banks:
             self.bank_combo.addItem(display_name, iban_prefix)
         
-        # Search banks button
         self.search_button = ModernButton("Search All Banks", primary=False)
         self.search_button.clicked.connect(self.show_bank_search_dialog)
         
@@ -191,13 +336,11 @@ class SpanishBankGUI(QMainWindow):
         controls_layout.addWidget(self.search_button)
         controls_layout.addStretch()
         
-        # Selected bank info
         self.bank_info_label = QLabel()
         self.bank_info_label.setFont(QFont("Segoe UI", 10))
         self.bank_info_label.setProperty("class", "info")
         self.bank_info_label.setVisible(False)
         
-        # Connect signals
         self.bank_combo.currentIndexChanged.connect(self.on_bank_selected)
         
         layout.addLayout(controls_layout)
@@ -211,34 +354,33 @@ class SpanishBankGUI(QMainWindow):
         layout = QVBoxLayout(section_widget)
         layout.setSpacing(12)
         
-        # Input controls
         controls_layout = QHBoxLayout()
         controls_layout.setSpacing(12)
         
-        # File input button
         self.file_button = ModernButton("Load File", primary=True)
         self.file_button.clicked.connect(self.load_file)
         
-        # Clear button
         self.clear_button = ModernButton("Clear", primary=False)
         self.clear_button.clicked.connect(self.clear_input)
         
+        self.cancel_button = ModernButton("Cancel", primary=False)
+        self.cancel_button.clicked.connect(self.cancel_operation)
+        self.cancel_button.setVisible(False)
+        
         controls_layout.addWidget(self.file_button)
         controls_layout.addWidget(self.clear_button)
+        controls_layout.addWidget(self.cancel_button)
         controls_layout.addStretch()
         
-        # Input text area
         self.input_text = QTextEdit()
         self.input_text.setFont(QFont("Consolas", 10))
         self.input_text.setStyleSheet("line-height: 1.4; padding: 12px;")
         self.input_text.setPlaceholderText("Paste your data with Spanish IBANs and phone numbers here...")
         
-        # Process button
         self.process_button = ModernButton("Extract Phone Numbers", primary=True)
         self.process_button.clicked.connect(self.process_input)
         self.process_button.setEnabled(False)
         
-        # Progress bar for large files
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.progress_bar.setStyleSheet("""
@@ -257,6 +399,7 @@ class SpanishBankGUI(QMainWindow):
         
         layout.addLayout(controls_layout)
         layout.addWidget(self.input_text)
+        layout.addWidget(self.progress_bar)
         layout.addWidget(self.process_button)
         
         return section_widget
@@ -312,21 +455,18 @@ class SpanishBankGUI(QMainWindow):
         layout = QVBoxLayout(tab_widget)
         layout.setSpacing(20)
         
-        # Title
         title_label = QLabel("Spanish Bank Registry")
         title_label.setFont(QFont("Segoe UI", 18, QFont.Weight.Bold))
         title_label.setProperty("class", "title")
         title_label.setStyleSheet("margin-bottom: 16px;")
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        # Instructions
         instructions_label = QLabel("Double-click a bank to select it")
         instructions_label.setFont(QFont("Segoe UI", 10))
         instructions_label.setProperty("class", "subtitle")
         instructions_label.setStyleSheet("margin-bottom: 16px; color: #605e5c;")
         instructions_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        # Search section
         search_layout = QHBoxLayout()
         search_layout.setSpacing(12)
         
@@ -342,7 +482,6 @@ class SpanishBankGUI(QMainWindow):
         search_layout.addWidget(self.bank_search_input)
         search_layout.addWidget(self.search_banks_button)
         
-        # Banks table
         self.banks_table = QTableWidget()
         self.banks_table.setObjectName("banks_table")
         self.banks_table.setColumnCount(4)
@@ -354,10 +493,8 @@ class SpanishBankGUI(QMainWindow):
             bank_header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
             bank_header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         
-        # Enable double-click to select bank
         self.banks_table.itemDoubleClicked.connect(self.on_bank_table_double_clicked)
         
-        # Load all banks button
         self.load_all_banks_button = ModernButton("Load All Banks", primary=True)
         self.load_all_banks_button.clicked.connect(self.load_all_banks)
         
@@ -646,116 +783,96 @@ class SpanishBankGUI(QMainWindow):
         )
         
         if file_name:
-            try:
-                # Check file size before loading
-                file_size = os.path.getsize(file_name)
-                if file_size > 10485760:  # 10MB
-                    reply = QMessageBox.question(
-                        self, "Large File", 
-                        f"File size is {file_size / 1024 / 1024:.1f}MB. This may take a while to load. Continue?",
-                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                    )
-                    if reply == QMessageBox.StandardButton.No:
-                        return
-                
-                # Show loading cursor
-                self.setCursor(Qt.CursorShape.WaitCursor)
-                
-                # Determine file type and read accordingly
-                file_extension = os.path.splitext(file_name)[1].lower()
-                
-                if file_extension in ['.xlsx', '.xls']:
-                    # Handle Excel files
-                    content = self._read_excel_file(file_name)
-                else:
-                    # Handle text/CSV files
-                    content = self._read_text_file(file_name, file_size)
-                
-                self.input_text.setPlainText(content)
-                
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Could not read file: {e}")
-            finally:
-                # Restore cursor
-                self.setCursor(Qt.CursorShape.ArrowCursor)
+            # Start async file loading immediately
+            self._start_async_file_loading(file_name)
     
-    def _read_excel_file(self, file_path: str) -> str:
-        """Read Excel file and return content as text."""
+    def _start_async_file_loading(self, file_name: str):
+        """Start asynchronous file loading with proper UI feedback."""
         try:
-            import openpyxl
-            from openpyxl import load_workbook
-        except ImportError:
-            raise RuntimeError("openpyxl is required to read Excel files. Please install it with: pip install openpyxl")
+            # Check file size before loading (this is quick, so it's OK to do in main thread)
+            file_size = os.path.getsize(file_name)
+            if file_size > 10485760:  # 10MB
+                reply = QMessageBox.question(
+                    self, "Large File", 
+                    f"File size is {file_size / 1024 / 1024:.1f}MB. This may take a while to load. Continue?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply == QMessageBox.StandardButton.No:
+                    return
+            
+            # Show loading cursor and progress bar
+            self.setCursor(Qt.CursorShape.WaitCursor)
+            self.progress_bar.setVisible(True)
+            self.progress_bar.setValue(0)
+            self.progress_bar.setFormat("Loading file... %p%")
+            
+            # Disable buttons during loading
+            self.process_button.setEnabled(False)
+            self.file_button.setEnabled(False)
+            self.cancel_button.setVisible(True) # Show cancel button
+            
+            # Determine file type and read accordingly
+            file_extension = os.path.splitext(file_name)[1].lower()
+            
+            # Create and start the file loader thread
+            self.file_loader = FileLoaderThread(file_name, file_extension)
+            self.file_loader.file_loaded.connect(self.on_file_loaded)
+            self.file_loader.error_occurred.connect(self.on_file_error)
+            self.file_loader.progress_updated.connect(self.update_progress_bar)
+            self.file_loader.start()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Could not read file: {e}")
+            self.progress_bar.setVisible(False)
+            self.process_button.setEnabled(False)
+            self.file_button.setEnabled(True)
+            self.cancel_button.setVisible(False)
+    
+    def on_file_loaded(self, content: str):
+        """Handle file loading completion."""
+        self.input_text.setPlainText(content)
         
-        try:
-            # Load the workbook
-            workbook = load_workbook(filename=file_path, read_only=True, data_only=True)
-            
-            # Get the first worksheet
-            worksheet = workbook.active
-            if worksheet is None:
-                # If no active worksheet, get the first one
-                worksheet = workbook.worksheets[0] if workbook.worksheets else None
-                if worksheet is None:
-                    raise RuntimeError("No worksheets found in the Excel file")
-            
-            # Read all cells and convert to text
-            content_lines = []
-            for row in worksheet.iter_rows(values_only=True):
-                # Convert row to text, filtering out None values
-                row_text = []
-                for cell_value in row:
-                    if cell_value is not None:
-                        row_text.append(str(cell_value))
-                
-                if row_text:  # Only add non-empty rows
-                    content_lines.append('\t'.join(row_text))
-            
-            workbook.close()
-            return '\n'.join(content_lines)
-            
-        except Exception as e:
-            raise RuntimeError(f"Error reading Excel file: {e}")
+        # Restore UI state
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+        self.progress_bar.setVisible(False)
+        self.process_button.setEnabled(True)
+        self.file_button.setEnabled(True)
+        self.cancel_button.setVisible(False)
+        
+        # Clear previous results
+        self.export_button.setEnabled(False)  # No results yet
+        self.clear_results_button.setEnabled(False)
+        self.results_summary.clear()
+        self.results_table.setRowCount(0)
+        
+        # Show success message for large files
+        if len(content) > 100000:  # More than 100KB
+            QMessageBox.information(self, "Success", "File loaded successfully!")
     
-    def _read_text_file(self, file_path: str, file_size: int) -> str:
-        """Read text/CSV file and return content."""
-        try:
-            # Read file with progress indication for large files
-            if file_size > 1024000:  # 1MB
-                # For large files, read in chunks with progress
-                content = ""
-                with open(file_path, 'r', encoding='utf-8-sig') as file:
-                    chunk_size = 8192  # 8KB chunks
-                    total_chunks = file_size // chunk_size + 1
-                    chunk_count = 0
-                    
-                    while True:
-                        chunk = file.read(chunk_size)
-                        if not chunk:
-                            break
-                        content += chunk
-                        chunk_count += 1
-                        
-                        # Update progress every 100 chunks
-                        if chunk_count % 100 == 0:
-                            QApplication.processEvents()  # Keep UI responsive
-            else:
-                # For smaller files, read all at once
-                with open(file_path, 'r', encoding='utf-8-sig') as file:
-                    content = file.read()
-            
-            return content
-            
-        except UnicodeDecodeError:
-            # Try with different encoding if UTF-8 fails
-            try:
-                with open(file_path, 'r', encoding='latin-1') as file:
-                    content = file.read()
-                return content
-            except Exception as e:
-                raise RuntimeError(f"Could not read file with any encoding: {e}")
-        except Exception as e:
-            raise RuntimeError(f"Could not read file: {e}")
+    def on_file_error(self, error_message: str):
+        """Handle file loading errors."""
+        QMessageBox.critical(self, "Error", f"Failed to load file: {error_message}")
+        
+        # Restore UI state
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+        self.progress_bar.setVisible(False)
+        self.process_button.setEnabled(False)
+        self.file_button.setEnabled(True)
+        self.cancel_button.setVisible(False)
+        self.export_button.setEnabled(False)
+        self.clear_results_button.setEnabled(False)
+        self.results_summary.clear()
+        self.results_table.setRowCount(0)
+    
+    def update_progress_bar(self, progress: int):
+        """Update the progress bar during file loading."""
+        if hasattr(self, 'progress_bar') and self.progress_bar.isVisible():
+            # Only update if progress actually changed to reduce UI overhead
+            if self.progress_bar.value() != progress:
+                self.progress_bar.setValue(progress)
+                # Process events less frequently to maintain responsiveness
+                if progress % 5 == 0:  # Only process events every 5% progress
+                    QApplication.processEvents()
     
     def clear_input(self):
         """Clear input text area."""
@@ -771,16 +888,76 @@ class SpanishBankGUI(QMainWindow):
         if not text.strip():
             QMessageBox.warning(self, "Warning", "Please enter some text to process.")
             return
-        # Show processing cursor for large files
-        if len(text) > 10000:  # More than 10KB
-            self.setCursor(Qt.CursorShape.WaitCursor)
+        
+        # Check if this is a large dataset that needs async processing
+        if len(text) > 50000:  # More than 50KB
+            # Use async processing for large datasets
+            self._process_large_dataset(iban_prefix, text)
+        else:
+            # Use synchronous processing for smaller datasets
+            self._process_small_dataset(iban_prefix, text)
+    
+    def _process_large_dataset(self, iban_prefix: str, text: str):
+        """Process large datasets asynchronously."""
+        # Show processing cursor and progress bar
+        self.setCursor(Qt.CursorShape.WaitCursor)
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFormat("Processing data... %p%")
+        
+        # Disable buttons during processing
+        self.process_button.setEnabled(False)
+        self.file_button.setEnabled(False)
+        self.cancel_button.setVisible(True) # Show cancel button
+        
+        # Create and start the processing thread
+        self.processing_thread = ProcessingThread(self.extractor, iban_prefix, text)
+        self.processing_thread.processing_complete.connect(self.on_processing_complete)
+        self.processing_thread.error_occurred.connect(self.on_processing_error)
+        self.processing_thread.progress_updated.connect(self.update_progress_bar)
+        self.processing_thread.start()
+    
+    def _process_small_dataset(self, iban_prefix: str, text: str):
+        """Process small datasets synchronously."""
         try:
+            # Show processing cursor for small files
+            self.setCursor(Qt.CursorShape.WaitCursor)
+            
             # Process the text using the extractor
             results = self.extractor.process_text(iban_prefix, text)
             self.display_results(results)
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error processing data: {e}")
         finally:
             # Restore cursor
             self.setCursor(Qt.CursorShape.ArrowCursor)
+    
+    def on_processing_complete(self, results):
+        """Handle processing completion."""
+        self.display_results(results)
+        
+        # Restore UI state
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+        self.progress_bar.setVisible(False)
+        self.process_button.setEnabled(True)
+        self.file_button.setEnabled(True)
+        self.cancel_button.setVisible(False)
+        
+        # Show success message for large datasets
+        if len(results) > 100:
+            QMessageBox.information(self, "Success", f"Processing complete! Found {len(results)} lines with phone numbers.")
+    
+    def on_processing_error(self, error_message: str):
+        """Handle processing errors."""
+        QMessageBox.critical(self, "Error", f"Error processing data: {error_message}")
+        
+        # Restore UI state
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+        self.progress_bar.setVisible(False)
+        self.process_button.setEnabled(True)
+        self.file_button.setEnabled(True)
+        self.cancel_button.setVisible(False)
     
     def display_results(self, results):
         """Display results in the table."""
@@ -1010,6 +1187,31 @@ class SpanishBankGUI(QMainWindow):
             address_item = QTableWidgetItem(address)
             address_item.setFlags(address_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.banks_table.setItem(i, 3, address_item)
+
+    def cancel_operation(self):
+        """Cancel the current operation (file loading or processing)."""
+        reply = QMessageBox.question(
+            self, "Confirm Cancel",
+            "Are you sure you want to cancel the current operation? This will stop the file loading or processing.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            # Request interruption for graceful termination
+            if hasattr(self, 'file_loader') and self.file_loader.isRunning():
+                self.file_loader.requestInterruption()
+                self.file_loader.wait(5000)  # Wait for thread to finish
+            
+            if hasattr(self, 'processing_thread') and self.processing_thread.isRunning():
+                self.processing_thread.requestInterruption()
+                self.processing_thread.wait(5000)  # Wait for thread to finish
+            
+            # Restore UI state
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+            self.progress_bar.setVisible(False)
+            self.process_button.setEnabled(True)
+            self.file_button.setEnabled(True)
+            self.cancel_button.setVisible(False)
+            QMessageBox.information(self, "Operation Cancelled", "Operation cancelled.")
 
 
 def main():

@@ -22,7 +22,6 @@ class BankRegistry:
                       If None, uses default location.
         """
         if csv_file is None:
-            # Look for the CSV file in data directory or current directory
             possible_paths = [
                 Path(__file__).parent.parent.parent.parent / "data" / "lista-psri-es.csv",
                 Path(__file__).parent.parent.parent.parent / "lista-psri-es.csv",
@@ -90,7 +89,6 @@ class BankRegistry:
             ('ES0198', 'Banco Cooperativo Español'),
         ]
         
-        # Filter to only include banks that exist in our registry
         available_banks = []
         for iban_prefix, display_name in major_banks:
             if iban_prefix in self.banks:
@@ -114,14 +112,12 @@ class BankRegistry:
         matches = []
         search_term = search_term.lower().strip()
         
-        # Early exit for very short search terms
         if len(search_term) < 2:
             return []
         
         for iban_prefix, bank_info in self.banks.items():
             if search_term in bank_info['name'].lower():
                 matches.append((iban_prefix, bank_info['name']))
-                # Limit results for performance
                 if len(matches) >= 100:
                     break
         
